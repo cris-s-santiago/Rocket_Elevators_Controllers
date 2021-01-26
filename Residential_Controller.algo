@@ -1,0 +1,27 @@
+CLASS Collum {
+    ElevatorList
+}
+
+
+CLASS Elevator{
+    Button
+    ElevDirection
+    Status
+    Position
+    Floor
+    Display
+}
+
+CLASS CallButtons{
+    ButtDirection
+    Floor
+    Light
+}
+
+CLASS Door{
+    StatusDoor
+}
+
+CLASS FloorRequestButtons{
+    ListButton    
+}
