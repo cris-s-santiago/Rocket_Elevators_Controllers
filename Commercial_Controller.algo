@@ -1,0 +1,246 @@
+
+'=============================================================== Battery ==============================================================='
+
+DEFINE Battery USING amountOfColumns AND amountOfElevColumn
+    ColumnList: empty List
+
+    SEQUENCE createColumns USING amountOfElevColumn
+        SET counter TO 1
+        FOR amountOfColumns
+            SET column TO INSTANTIATE Column WITH counter AND amountOfElevColumn
+            ADD column TO columnList
+            INCREMENT counter
+        ENDFOR
+    ENDSEQUENCE
+
+    SEQUENCE requestButtonRC USING requestFloorDestination AND buttonFloorOrigin
+        CALL findColumn WITH requestFloorDestination RETURNING bestColumn
+        IF requestFloorDestination IS LESS THAN 1 THEN
+            SET requestFloorDirection TO down
+        ELSE
+            SET requestFloorDirection TO up
+        ENDIF        
+        CALL bestColumn findBestElevator WITH requestFloorDestination AND requestFloorDirection AND buttonFloorOrigin RETURNING bestElevatorFound        
+        CALL bestElevatorFound movElev WITH requestFloorDestination AND requestFloorDirection
+    ENDSEQUENCE
+
+    SEQUENCE findColumn USING requestFloorDestination                           ' Choose de right column'
+        IF requestFloorDestination IS LESS THAN 1
+            RETURN first element of ColumnList
+        ELSE IF requestFloorDestination IS GREATER THAN 1  AND  LESS THAN 21
+            RETURN second element of ColumnList
+        ELSE IF requestFloorDestination IS GREATER THAN 20  AND  LESS THAN 41
+            RETURN third element of ColumnList
+        ELSE IF requestFloorDestination IS GREATER THAN 40
+            RETURN fourth element of ColumnList
+    ENDSEQUENCE     
+
+    CALL createColumns WITH amountOfElevCollum
+ENDDEFINE
+
+
+
+'=============================================================== Column ==============================================================='
+
+DEFINE Column USING identify AND amountOfElev       
+    
+  ID: identify  
+  Status: active
+  ElevatorList: empty list
+
+    
+    'Using a FOR(Loop) to create ElevatorList'
+    SEQUENCE createElevator USING amountOfElev
+        SET counter TO 1                                                                    
+        FOR amountOfElev                                                   
+            SET elevator TO INSTANTIATE Elevator WITH counter
+            ADD elevator TO ElevatorList
+            INCREMENT counter
+        ENDFOR
+    ENDSEQUENCE
+
+
+    SEQUENCE findBestElevator USING requestFloorDestination AND requestFloorDirection AND buttonFloorOrigin
+        SET bestElevator TO NULL
+        SET ElevatorAvailableList TO NULL
+
+      'Select just the available elevators'
+        FOR EACH elevator OF THIS ElevatorList
+            IF buttonFloorOrigin IS EQUAL TO elevator CurrentFloor AND requestFloorDirection IS EQUAL TO elevator Direction     'Scenario 2'
+                SET bestElevator TO elevator
+                BREAK                                                         'Exit FOR EACH'
+            ELSE IF requestFloorDestination IS LESS THAN buttonFloorOrigin AND elevator Direction IS EQUAL TO down AND elevator CurrentFloor IS GREATER THAN buttonFloorOrigin THEN 'Scenario 3'
+                ADD elevator TO ElevatorAvailableList
+            ELSE IF requestFloorDestination IS GREATER THAN buttonFloorOrigin AND elevator Direction IS EQUAL TO down AND elevator CurrentFloor IS GREATER THAN buttonFloorOrigin THEN 'Scenario 1'
+                ADD elevator TO ElevatorAvailableList
+            ELSE IF requestFloorDestination IS GREATER THAN buttonFloorOrigin AND elevator Direction IS EQUAL TO up AND elevator CurrentFloor IS LESS THAN buttonFloorOrigin THEN   'Scenario 4'
+                ADD elevator TO ElevatorAvailableList
+            ENDIF
+        ENDFOR
+
+        IF ElevatorAvailableList LENGTH IS NOT NULL THEN
+            'Compare each pair of elevators in the ElevatorList to find the nearst'
+            FOR SET index = 1 TO ElevatorAvailableList
+
+                IF ElevatorAvailableList LENGTH IS MORE THAN 1
+
+                    IF bestElevator IS NOT NULL
+                        SET firstPairElement TO bestElevator
+                    ELSE
+                        SET firstPairElement GET index element OF ElevatorAvailableList
+                    ENDIF
+
+                    SET secondPairElement GET index element + 1 OF ElevatorAvailableList
+
+                    'Calculation of the distance for the requested floor' 
+                    SET distFirstPairElement TO ABSOLUTE (firstPairElement CurrentFloor- requestFloorDestination)
+                    SET distSecondPairElement TO ABSOLUTE (secondPairElement CurrentFloor - requestFloorDestination)
+
+                    'Set the first element if nearst, othewise set second element'
+                    IF distFirstPairElement < distSecondPairElement
+                        SET bestElevator TO firstPairELement
+                    ELSE
+                        SET bestElevator TO secondPairElement
+                    ENDIF
+
+                ELSE
+                    SET bestElevator GET index element OF ElevatorAvailableList
+                ENDIF
+            ENDFOR
+        ENDIF     
+        RETURN bestElevator
+
+    ENDSEQUENCE 
+
+    'Calling the functions that created ElevatorList and CallButtonList'
+    CALL createElevator WITH amountOfElev
+
+ENDDEFINE
+
+
+
+'=============================================================== Elevator ==============================================================='
+
+DEFINE Elevator USING identify                    
+    ID: identify        
+    Status: idle                                                        'Idle or moving'
+    Direction: NULL                              
+    CurrentFloor: 1
+    ElevFloorDestination: NULL                                  
+    Doors: INSTANTIATE OF Doors
+    MaxCapacity: 1500                                                   'Weight measured in pounds'
+    ActualCapacity: NULL
+    MaxCapacityDisplay: NULL                                             
+
+    SEQUENCE movElev USING requestFloor AND requestDirection    
+      SET THIS Direction TO requestDirection AND THIS Status TO moving AND THIS ElevFloorDestination TO requestFloor
+      WHILE THIS CurrentFloor IS NOT EQUAL THIS ElevFloorDestination 
+        IF Direction EQUAL up
+          CurrentFloor INCREMENT
+        ENDIF
+        IF Direction EQUAL down
+          CurrentFloor DECREMENT
+        ENDIF
+      ENDWHILE
+
+      CALL operateDoors WITH opened
+      SET THIS Status TO idle
+    ENDSEQUENCE
+
+    SEQUENCE operateDoors USING command
+        READ sensorDoor                                                 'Value provided by the external sensor'
+        IF sensorDoor IS false
+          SET THIS Doors Status TO command
+        ENDIF
+    ENDSEQUENCE
+
+    SEQUENCE ElevRequestButtons USING requestFloorInt
+      CALL operateDoors WITH closed
+      IF requestFloorInt > CurrentFloor
+        SET elevDirection TO up
+      ELSE IF requestFloorInt < CurrentFloor
+        SET elevDirection TO down
+      ENDIF
+
+      CALL CapacityCalculate
+      IF MaxCapacityStatus IS EQUAL loaded THEN
+        CALL movElev WITH requestFloorInt AND elevDirection
+      ENDIF
+    ENDSEQUENCE
+
+    SEQUENCE CapacityCalculate
+      READ ActualCapacity                                                 'Value provided by the lift scale'
+      IF ActualCapacity IS LESS THAN OR EQUAL TO MaxCapacity THEN
+          SHOW MaxCapacityDisplay "LOADED"
+          SET MaxCapacityStatus TO loaded
+      ELSE
+          SET Status to stopped 
+          CALL operateDoors WITH opened
+          SHOW MaxCapacityDisplay "OVERLOADED"
+          SET MaxCapacityStatus TO overloaded
+      ENDIF
+    ENDSEQUENCE
+
+    CALL movElev WITH CurrentFloor AND Direction                         'Start possition elevator'
+ 
+    
+ENDDEFINE
+
+
+
+'=============================================================== CallButtons ==============================================================='
+
+DEFINE CallButtons
+  SET floor
+  SET direction
+ENDDEFINE
+
+
+
+'=============================================================== Doors ==============================================================='
+
+DEFINE Doors
+  Status: closed // opened or closed
+ENDDEFINE
+
+
+
+'=============================================================== FloorRequestButtons ==============================================================='
+
+DEFINE FloorRequestButtons
+  ElevButtonList: empty list
+ENDDEFINE
+
+
+'=============================================================== Floor display ==============================================================='
+
+DEFINE FloorRequestButtons
+  ElevButtonList: empty list
+ENDDEFINE
+
+
+
+
+
+
+
+
+===============================================================   TEST   ===============================================================
+
+*Residential Scenarios:
+
+SET Battery1 to INSTANTIATE Battery WITH 1 AND 2
+
+  -Scenario 1:  
+    CALL Battery1 requestButtonRC WITH 20 AND 1
+
+  -Scenario 2:
+    CALL Battery1 requestButtonRC WITH 36 AND 1
+
+  -Scenario 3:
+    CALL Battery1 requestButtonRC WITH 1 AND 58
+
+  -Scenario 4:
+    CALL Battery1 requestButtonRC WITH 1 AND -3
+
+===============================================================  ENDTEST  ===============================================================

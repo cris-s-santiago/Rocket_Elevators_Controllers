@@ -14,30 +14,28 @@
 
 '=============================================================== Column ==============================================================='
 
-DEFINE Column USING identify AND amountOfFloor AND amountOfElev       
+DEFINE Column USING identify AND amountOfElev       
     
-  ID: identify    
-  NumberOfFloor: amountOfFloor    
+  ID: identify  
   Status: active
   ElevatorList: empty list
 
-    'Calling the functions that created ElevatorList and CallButtonList'
-    CALL createElevator WITH amountOfElev
+    
     'Using a FOR(Loop) to create ElevatorList'
     SEQUENCE createElevator USING amountOfElev
-
-        SET counter TO 1                                                                    
-        For amountOfElev                                                   
-          SET elevator TO INSTANTIATE Elevator with counter
-          ADD elevator TO ElevatorList
-          INCREMENT counter
-        ENDFOR
-
+      SET counter TO 1                                                                    
+      FOR amountOfElev                                                   
+        SET elevator TO INSTANTIATE Elevator WITH counter
+        ADD elevator TO ElevatorList
+        INCREMENT counter
+      ENDFOR
     ENDSEQUENCE
 
     SEQUENCE requestElevator USING requestFloorExt AND requestDirectionExt
       CALL findBestElevator WITH requestFloorExt AND requestDirectionExt RETURNING bestElevatorFound
-      CALL bestElevatorFound movElev WITH requestFloorExt AND requestDirectionExt
+      IF bestElevatorFound Doors IS closed THEN
+        CALL bestElevatorFound movElev WITH requestFloorExt AND requestDirectionExt
+      ENDIF
     ENDSEQUENCE
 
     SEQUENCE findBestElevator USING requestFloorExt AND requestDirectionExt
@@ -49,37 +47,37 @@ DEFINE Column USING identify AND amountOfFloor AND amountOfElev
         IF elevator Status EQUAL idle 
           ADD elevator TO ElevatorAvailableList
         ENDIF
+      ENDFOR
 
         'Compare each pair of elevators in the ElevatorList to find the nearst'
-        FOR SET x = 1 TO ElevatorAvailableList
+      FOR SET index = 1 TO ElevatorAvailableList
           IF ElevatorAvailableList LENGTH MORE THAN 1
-            IF bestElevator IS NOT NULL
-              SET firstPairElement TO bestElevator
-            ELSE
-              SET firstPairElement GET element x OF ElevatorAvailableList
-            ENDIF
-
-            SET secondPairElement GET element x + 1 OF ElevatorAvailableList
-            
-            'Calculation of the distance for the requested floor' 
-            SET distFirstPairElement TO ABSOLUTE (firstPairElement CurrentFloor - requestFloorExt)
-            SET distSecondPairElement TO ABSOLUTE (secondPairElement CurrentFloor - requestFloorExt)
-
-            'Set the first element if nearst, othewise set second element'
-            IF distFirstPairElement < distSecondPairElement
-              SET bestElevator TO firstPairELement
-            ELSE
-              SET bestElevator TO secondPairElement
-            ENDIF
+              IF bestElevator IS NOT NULL
+                  SET firstPairElement TO bestElevator
+              ELSE
+                  SET firstPairElement GET element index OF ElevatorAvailableList
+              ENDIF
+              SET secondPairElement GET element index + 1 OF ElevatorAvailableList
+              
+              'Calculation of the distance for the requested floor' 
+              SET distFirstPairElement TO ABSOLUTE (firstPairElement CurrentFloor- requestFloorExt)
+              SET distSecondPairElement TO ABSOLUTE (secondPairElement CurrentFloor - requestFloorExt)
+              'Set the first element if nearst, othewise set second element'
+              IF distFirstPairElement < distSecondPairElement
+                  SET bestElevator TO firstPairELement
+              ELSE
+                  SET bestElevator TO secondPairElement
+              ENDIF
           ELSE
-            SET bestElevator GET element x OF ElevatorAvailableList
+              SET bestElevator GET element x OF ElevatorAvailableList
           ENDIF
-        ENDFOR
-
-      ENDFOR
+      ENDFOR      
       RETURN bestElevator
 
     ENDSEQUENCE 
+
+    'Calling the functions that created ElevatorList and CallButtonList'
+    CALL createElevator WITH amountOfElev
 
 ENDDEFINE
 
@@ -89,31 +87,35 @@ ENDDEFINE
 
 DEFINE Elevator USING identify                    
     ID: identify        
-    Status: idle                               
-    Direction: NULL   // useless at this time                            
+    Status: idle                                                        'Idle or moving'
+    Direction: NULL                              
     CurrentFloor: 1
     ElevFloorDestination: NULL                                  
     Doors: INSTANTIATE OF Doors
+    MaxCapacity: 1500                                                   'Weight measured in pounds'
+    ActualCapacity: NULL
+    MaxCapacityDisplay: NULL                                             
 
-    SEQUENCE movElev USING requestFloor AND requestDirection
-
-      SET this Direction TO requestDirection AND this Status TO moving AND this ElevFloorDestination TO requestFloor
-      WHILE this CurrentFloor IS NOT EQUAL this ElevFloorDestination 
+    SEQUENCE movElev USING requestFloor AND requestDirection    
+      SET THIS Direction TO requestDirection AND THIS Status TO moving AND THIS ElevFloorDestination TO requestFloor
+      WHILE THIS CurrentFloor IS NOT EQUAL THIS ElevFloorDestination 
         IF Direction EQUAL up
-          CurrentFloor INCREMENT 1
+          CurrentFloor INCREMENT
         ENDIF
         IF Direction EQUAL down
-          CurrentFloor INCREMENT -1 'To do'
+          CurrentFloor DECREMENT
         ENDIF
       ENDWHILE
 
       CALL operateDoors WITH opened
-      SET this Status TO idle
-
+      SET THIS Status TO idle
     ENDSEQUENCE
 
     SEQUENCE operateDoors USING command
-        SET this Doors Status TO command
+        READ sensorDoor                                                 'Value provided by the external sensor'
+        IF sensorDoor IS false
+          SET THIS Doors Status TO command
+        ENDIF
     ENDSEQUENCE
 
     SEQUENCE ElevRequestButtons USING requestFloorInt
@@ -124,8 +126,27 @@ DEFINE Elevator USING identify
         SET elevDirection TO down
       ENDIF
 
-      CALL movElev WITH requestFloorInt AND elevDirection
-    ENDSEQUENCE 
+      CALL CapacityCalculate
+      IF MaxCapacityStatus IS EQUAL loaded THEN
+        CALL movElev WITH requestFloorInt AND elevDirection
+      ENDIF
+    ENDSEQUENCE
+
+    SEQUENCE CapacityCalculate
+      READ ActualCapacity                                                 'Value provided by the lift scale'
+      IF ActualCapacity IS LESS THAN OR EQUAL TO MaxCapacity THEN
+          SHOW MaxCapacityDisplay "LOADED"
+          SET MaxCapacityStatus TO loaded
+      ELSE
+          SET Status to stopped 
+          CALL operateDoors WITH opened
+          SHOW MaxCapacityDisplay "OVERLOADED"
+          SET MaxCapacityStatus TO overloaded
+      ENDIF
+    ENDSEQUENCE
+
+    CALL movElev WITH CurrentFloor AND Direction                         'Start possition elevator'
+ 
     
 ENDDEFINE
 
@@ -143,7 +164,8 @@ ENDDEFINE
 '=============================================================== Doors ==============================================================='
 
 DEFINE Doors
-  Status: closed // opened or closed                               
+  Status: closed // opened or closed
+
 ENDDEFINE
 
 
@@ -160,28 +182,28 @@ ENDDEFINE
 
 *Residential Scenarios:
 
-SET Column1 to INSTANTIATE Column WITH 1 AND 10 AND 2
+SET Column1 to INSTANTIATE Column WITH 1 AND 2
 
   -Scenario 1:  
-    CALL requestElevator WITH 3, Up      ELEVATOR A IDLE FLOOR 2  || ELEVATOR B IDLE Floor 6
-    CALL ElevRequestButtons WITH 7
+    CALL Column1 requestElevator WITH 3, Up    
+    CALL Elevator ElevRequestButtons WITH 7
 
   -Scenario 2:
-    CALL requestElevator WITH 1, Up
-    CALL ElevRequestButtons WITH 6
+    CALL Column1 requestElevator WITH 1, Up
+    CALL Elevator ElevRequestButtons WITH 6
 
-    CALL requestElevator WITH 3, Up
-    CALL ElevRequestButtons WITH 5
+    CALL Column1 requestElevator WITH 3, Up
+    CALL Elevator ElevRequestButtons WITH 5
 
-    CALL requestElevator WITH 9, Down
-    CALL ElevRequestButtons WITH 2
+    CALL Column1 requestElevator WITH 9, Down
+    CALL Elevator ElevRequestButtons WITH 2
 
-  -Scenario 2:
-    CALL requestElevator WITH 3, Down         ELEVATOR A IDLE F10 ||
-    CALL ElevRequestButtons WITH 2
+  -Scenario 3:
+    CALL Column1 requestElevator WITH 3, Down         
+    CALL Elevator ElevRequestButtons WITH 2
 
-    CALL requestElevator WITH 10, Down
-    CALL ElevRequestButtons WITH 3
+    CALL Column1 requestElevator WITH 10, Down
+    CALL Elevator ElevRequestButtons WITH 3
 
 ===============================================================  ENDTEST  ===============================================================
 
